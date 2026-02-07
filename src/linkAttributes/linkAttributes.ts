@@ -55,15 +55,36 @@ export function fetchTargetAttributesSync(app: App, settings: SuperchargedLinksS
         if (api) {
             getResults(api)
         }
-        else
-            this.plugin.registerEvent(
-                this.app.metadataCache.on("dataview:api-ready", (api: any) =>
-                    getResults(api)
-                )
-            );
+        // This is crashing for some people. I think ignoring it will be ok. 
+        // else
+        //     this.plugin.registerEvent(
+        //         app.metadataCache.on("dataview:api-ready", (api: any) =>
+        //             getResults(api)
+        //         )
+        //     );
     }
+    // Replace spaces with hyphens in the keys of new_props
+    const hyphenated_props: Record<string, string> = {};
+    for (const key in new_props) {
+        const hyphenatedKey = key.replace(/ /g, '-');
+        hyphenated_props[hyphenatedKey] = new_props[key];
+    }
+    new_props = hyphenated_props;
 
     return new_props
+}
+
+export function processKey(key: string) {
+    // Replace spaces with hyphens (v0.13.4+)
+    return key.replace(/ /g, '-');
+}
+
+export function processValue(key: string, value: string) {
+    // TODO: This is a hack specifically for Emile's setup. Should be commented in releases.
+    if (key.contains("publishedIn") && value?.length && value.length === 1 && value[0].startsWith && value[0].startsWith("[[") && value[0].endsWith("]]")) {
+        return value[0].slice(2, -2);
+    }
+    return value;
 }
 
 function setLinkNewProps(link: HTMLElement, new_props: Record<string, string>) {
@@ -74,17 +95,18 @@ function setLinkNewProps(link: HTMLElement, new_props: Record<string, string>) {
         }
     }
     Object.keys(new_props).forEach(key => {
-        const name = "data-link-" + key;
-        const newValue = new_props[key];
+        const dom_key = processKey(key);
+        const name = "data-link-" + dom_key;
         const curValue = link.getAttribute(name);
+        const newValue = processValue(key, new_props[key]);
 
         // Only update if value is different
         if (!newValue || curValue != newValue) {
-            link.setAttribute("data-link-" + key, new_props[key])
-            if (new_props[key]?.startsWith && (new_props[key].startsWith('http') || new_props[key].startsWith('data:'))) {
-                link.style.setProperty(`--data-link-${key}`, `url(${new_props[key]})`);
+            link.setAttribute(name, newValue)
+            if (newValue?.startsWith && (newValue.startsWith('http') || newValue.startsWith('data:'))) {
+                link.style.setProperty(`--data-link-${dom_key}`, `url(${newValue})`);
             } else {
-                link.style.setProperty(`--data-link-${key}`, new_props[key]);
+                link.style.setProperty(`--data-link-${dom_key}`, newValue);
             }
         }
     });
@@ -110,17 +132,30 @@ function updateLinkExtraAttributes(app: App, settings: SuperchargedLinksSettings
     }
 }
 
-export function updateDivExtraAttributes(app: App, settings: SuperchargedLinksSettings, link: HTMLElement, destName: string, linkName?: string) {
-    if (link.parentElement.getAttribute("class").contains('mod-collapsible')) return; // Bookmarks Folder
+export function updateDivExtraAttributes(app: App, settings: SuperchargedLinksSettings, link: HTMLElement, destName: string, linkName?: string, filter_collapsible: boolean = false) {
+    if (filter_collapsible && link.parentElement.getAttribute("class").contains('mod-collapsible')) return; // Bookmarks Folder
     if (!linkName) {
         linkName = link.textContent;
     }
-    if (!!link.parentElement.getAttribute('data-path')) {
-        // File Browser
-        linkName = link.parentElement.getAttribute('data-path');
-    } else if (link.parentElement.getAttribute("class") == "suggestion-content" && !!link.nextElementSibling) {
-        // Auto complete
-        linkName = link.nextElementSibling.textContent + linkName;
+    // Sometimes textContent refers to the alias, missing the base name/path. Then we need to explicitly get the base name/path from attributes.
+    // Check for file name in various attributes, in order of preference
+    const parent = link.parentElement;
+    const attributeSources = [
+        () => parent?.getAttribute('data-path'), // File Browser
+        () => parent?.getAttribute("data-href"), // Bases
+        () => parent?.getAttribute("href"), // Bases 
+        () => link.getAttribute("data-href"), // Bases (v1.10+)
+        () => link.getAttribute("href"), // Bases
+        () => parent?.getAttribute("class") === "suggestion-content" && link.nextElementSibling 
+            ? link.nextElementSibling.textContent + linkName : null // Auto complete
+    ];
+
+    for (const source of attributeSources) {
+        const value = source();
+        if (value) {
+            linkName = value;
+            break;
+        }
     }
     const dest = app.metadataCache.getFirstLinkpathDest(getLinkpath(linkName), destName)
 
@@ -144,7 +179,7 @@ export function updateElLinks(app: App, plugin: SuperchargedLinks, el: HTMLEleme
 export function updatePropertiesPane(propertiesEl: HTMLElement, file: TFile, app: App, plugin: SuperchargedLinks) {
     const frontmatter = app.metadataCache.getCache(file.path)?.frontmatter;
     if(!!frontmatter) {
-        const nodes = propertiesEl.querySelectorAll("div.internal-link > .multi-select-pill-content");
+        const nodes = propertiesEl.querySelectorAll("div.multi-select-pill-content");
         for (let i = 0; i < nodes.length; ++i) {
             const el = nodes[i] as HTMLElement;
             const linkText = el.textContent;

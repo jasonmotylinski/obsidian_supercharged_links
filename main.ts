@@ -51,7 +51,7 @@ export default class SuperchargedLinks extends Plugin {
 		// Initialization
 		this.registerEvent(this.app.workspace.on("window-open", (window, win) => this.initModalObservers(this, window.getContainer().doc)));
 
-		// Update when
+		// Update when 
 		// Debounced to prevent lag when writing
 		this.registerEvent(this.app.metadataCache.on('changed', debounce(updateLinks, 500, true)));
 
@@ -93,16 +93,28 @@ export default class SuperchargedLinks extends Plugin {
 		plugin.registerViewType('hierarchical-outgoing-links', plugin, ".tree-item-inner", true);
 		plugin.registerViewType('starred', plugin, '.nav-file-title-content');
 		plugin.registerViewType('file-explorer', plugin, '.nav-file-title-content');
-		plugin.registerViewType('recent-files', plugin, '.nav-file-title-content');
-		plugin.registerViewType('bookmarks', plugin, '.tree-item-inner');
-		// @ts-ignore
-		if (plugin.app?.internalPlugins?.plugins?.bases?.enabled) {
-			// console.log('Supercharged links: Enabling bases support');
-			plugin.registerViewType('bases', plugin, '.internal-link');
-			// For embedded bases
-			plugin.registerViewType('markdown', plugin, 'div.bases-table-cell  .internal-link');
+
+		if (plugin.app?.plugins?.plugins?.['folder-notes']) {
+			// console.log('Supercharged links: Enabling folder notes support');
+			plugin.registerViewType('file-explorer', plugin, '.has-folder-note .tree-item-inner');
 		}
 
+		plugin.registerViewType('recent-files', plugin, '.nav-file-title-content');
+		plugin.registerViewType('bookmarks', plugin, '.tree-item-inner', false, true);
+		// @ts-ignore
+		if (plugin.app?.internalPlugins?.plugins?.bases?.enabled && plugin.settings.enableBases) {
+			// console.log('Supercharged links: Enabling bases support');
+			plugin.registerViewType('bases', plugin, 'span.internal-link');
+			plugin.registerViewType('bases', plugin, '.multi-select-pill-content');
+
+			// For embedded bases
+			plugin.registerViewType('markdown', plugin, 'div.bases-table-cell span.internal-link');
+			plugin.registerViewType('markdown', plugin, 'div.bases-table-cell div.multi-select-pill-content');
+			plugin.registerViewType('markdown', plugin, 'div.bases-cards-line');
+		}
+		if (plugin.app?.plugins?.plugins?.['similar-notes']) {
+			plugin.registerViewType('markdown', plugin, '.similar-notes-pane .tree-item-inner', true)
+		}
 		// If backlinks in editor is on
 		// @ts-ignore
 		if (plugin.app?.internalPlugins?.plugins?.backlink?.enabled && plugin.app?.internalPlugins?.plugins?.backlink?.instance?.options?.backlinkInDocument) {
@@ -110,19 +122,23 @@ export default class SuperchargedLinks extends Plugin {
 			plugin.registerViewType('markdown', plugin, '.embedded-backlinks .tree-item-inner', true);
 		}
 		const propertyLeaves = this.app.workspace.getLeavesOfType("file-properties");
-		 for (let i = 0; i < propertyLeaves.length; i++) {
-			 const container = propertyLeaves[i].view.containerEl;
-			 let observer = new MutationObserver((records, _) =>{
-				 const file = this.app.workspace.getActiveFile();
-				 if (!!file) {
-					 updatePropertiesPane(container, this.app.workspace.getActiveFile(), this.app, plugin);
-				 }
-			 });
-			 observer.observe(container, {subtree: true, childList: true, attributes: false});
-			 plugin.observers.push([observer, "file-properties" + i, ""]);
-			 // TODO: No proper unloading!
-		 }
+		for (let i = 0; i < propertyLeaves.length; i++) {
+			const container = propertyLeaves[i].view.containerEl;
+			let observer = new MutationObserver((records, _) =>{
+				const file = this.app.workspace.getActiveFile();
+				if (!!file) {
+					updatePropertiesPane(container, this.app.workspace.getActiveFile(), this.app, plugin);
+				}
+			});
+			observer.observe(container, {subtree: true, childList: true, attributes: false});
+			plugin.observers.push([observer, "file-properties" + i, ""]);
+			// TODO: No proper unloading!
+		}
 		plugin.registerViewType('file-properties', plugin, 'div.internal-link > .multi-select-pill-content');
+		if (plugin.app?.plugins?.plugins?.['notebook-navigator']) {
+			plugin.registerViewType('notebook-navigator', plugin, 'span.nn-shortcut-label');
+			plugin.registerViewType('notebook-navigator', plugin, 'div.nn-file-name');
+		}
 	}
 
 	initModalObservers(plugin: SuperchargedLinks, doc: Document) {
@@ -156,7 +172,7 @@ export default class SuperchargedLinks extends Plugin {
 		this.modalObservers.last().observe(doc.body, config);
 	}
 
-	registerViewType(viewTypeName: string, plugin: SuperchargedLinks, selector: string, updateDynamic = false) {
+	registerViewType(viewTypeName: string, plugin: SuperchargedLinks, selector: string, updateDynamic = false, filter_collapsible: boolean = false) {
 		const leaves = this.app.workspace.getLeavesOfType(viewTypeName);
 		// if (leaves.length > 1) {
 		 for (let i = 0; i < leaves.length; i++) {
@@ -165,7 +181,7 @@ export default class SuperchargedLinks extends Plugin {
 				plugin._watchContainerDynamic(viewTypeName + i, container, plugin, selector)
 			}
 			 else {
-				plugin._watchContainer(viewTypeName + i, container, plugin, selector);
+				plugin._watchContainer(viewTypeName + i, container, plugin, selector, filter_collapsible);
 			}
 		 }
 		// }
@@ -182,13 +198,13 @@ export default class SuperchargedLinks extends Plugin {
 		// }
 	}
 
-	updateContainer(container: HTMLElement, plugin: SuperchargedLinks, selector: string) {
+	updateContainer(container: HTMLElement, plugin: SuperchargedLinks, selector: string, filter_collapsible: boolean = false) {
 		if (!plugin.settings.enableBacklinks && container.getAttribute("data-type") !== "file-explorer") return;
 		if (!plugin.settings.enableFileList && container.getAttribute("data-type") === "file-explorer") return;
 		const nodes = container.findAll(selector);
 		for (let i = 0; i < nodes.length; ++i) {
 			const el = nodes[i] as HTMLElement;
-			updateDivExtraAttributes(plugin.app, plugin.settings, el, "");
+			updateDivExtraAttributes(plugin.app, plugin.settings, el, "", undefined, filter_collapsible);
 		}
 	}
 
@@ -200,9 +216,9 @@ export default class SuperchargedLinks extends Plugin {
 		}
 	}
 
-	_watchContainer(viewType: string, container: HTMLElement, plugin: SuperchargedLinks, selector: string) {
+	_watchContainer(viewType: string, container: HTMLElement, plugin: SuperchargedLinks, selector: string, filter_collapsible: boolean = false) {
 		let observer = new MutationObserver((records, _) => {
-			plugin.updateContainer(container, plugin, selector);
+			plugin.updateContainer(container, plugin, selector, filter_collapsible);
 		});
 		observer.observe(container, { subtree: true, childList: true, attributes: false });
 		if (viewType) {
@@ -259,3 +275,4 @@ export default class SuperchargedLinks extends Plugin {
 		await this.saveData(this.settings);
 	}
 }
+

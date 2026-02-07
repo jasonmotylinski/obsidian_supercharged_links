@@ -30,7 +30,7 @@ export default class SuperchargedLinksSettingTab extends PluginSettingTab {
 					.setPlaceholder('Enter attributes as string, comma separated')
 					.setValue(this.plugin.settings.targetAttributes.join(', '))
 					.onChange(async (value) => {
-						this.plugin.settings.targetAttributes = value.replace(/\s/g, '').split(',');
+						this.plugin.settings.targetAttributes = value.split(',').map(attr => attr.trim());
 						if (this.plugin.settings.targetAttributes.length === 1 && !this.plugin.settings.targetAttributes[0]) {
 							this.plugin.settings.targetAttributes = [];
 						}
@@ -86,7 +86,18 @@ Styling can be done using the Style Settings plugin.
 					this.plugin.settings.enableFileList = value
 					this.plugin.saveSettings()
 				})
-			})
+			});
+
+		new Setting(containerEl)
+			.setName('Enable in Bases')
+			.setDesc('If true, this will also supercharge Obsidian Bases.')
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.enableBases)
+				toggle.onChange(value => {
+					this.plugin.settings.enableBases = value
+					this.plugin.saveSettings()
+				});
+			});
 
 		new Setting(containerEl)
 			.setName('Enable in Plugins')

@@ -4,7 +4,7 @@ import {Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetTyp
 import {RangeSet, RangeSetBuilder} from "@codemirror/state";
 import {syntaxTree} from "@codemirror/language";
 import {tokenClassNodeProp} from "@codemirror/language";
-import {fetchTargetAttributesSync} from "./linkAttributes";
+import {fetchTargetAttributesSync, processValue} from "./linkAttributes";
 import {DefaultFunctions} from "obsidian-dataview/lib/expression/functions";
 
 export function buildCMViewPlugin(app: App, _settings: SuperchargedLinksSettings)
@@ -26,11 +26,12 @@ export function buildCMViewPlugin(app: App, _settings: SuperchargedLinksSettings
             let headerEl = document.createElement("span");
             headerEl.setAttrs(this.attributes);
             for (let key in this.attributes) {
+                
                 // CSS doesn't allow interpolation of variables for URLs, so do it beforehand to be nice.
                 if (this.attributes[key]?.startsWith && (this.attributes[key].startsWith('http') || this.attributes[key].startsWith('data:'))) {
                     headerEl.style.setProperty(`--${key}`, `url(${this.attributes[key]})`);
                 } else {
-                    headerEl.style.setProperty(`--${key}`, this.attributes[key]);
+                    headerEl.style.setProperty(`--${key}`, processValue(key, this.attributes[key]));
                 }
             }
             if (this.after) {
